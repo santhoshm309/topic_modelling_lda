@@ -1,0 +1,173 @@
+---
+title: "LDA for IMDB movie reviews"
+output: html_notebook
+---
+```{r}
+library("tm")
+library("lda")
+library("LDAvis")
+data(reviews, package = "LDAvisData")
+
+# Stop words built into the library tm is loaded
+
+stop_words <- tm::stopwords("SMART")
+
+```
+
+---
+  Once the stop words are loaded, the reviews dataset is sent into various pre processing methods
+---
+
+```{r}
+reviews <- gsub("'","",reviews) #to remove apostrophes
+
+reviews <- gsub("[[:punct:]]"," ", reviews) # to remove punctuations
+
+reviews <- gsub("[[:cntrl:]]", " ", reviews) # to remove control charachters
+
+reviews <- gsub("^[[:space:]]+","", reviews) # to remove white space in the begining
+
+reviews <- gsub("[[:space:]]+$", "", reviews) # to remove whitespace at end of document
+
+reviews <- tolower(reviews)
+
+#Now to tokenize on whitespace
+
+doc.list <- strsplit(reviews, "[[:space:]]+")
+
+# compute the table of terms:
+
+term.table <- table(unlist(doc.list))
+
+term.table <- sort(term.table, decreasing = TRUE)
+
+head(term.table, 10)
+
+#Count of each occuring word in the corpus(reviews)
+
+``` 
+
+
+---
+  Once we get frequency of the words, we further clean the data by removing terms that occur less than 5 and also the stop words
+---
+
+
+```{r}
+del <- names(term.table) %in% stop_words | term.table < 5
+
+term.table <- term.table[!del]
+
+vocab <- names(term.table)
+
+head(vocab)
+```
+
+---
+  As u can see, the modified 'vocab' corpus doesnt have the stop words that have occured soo many times in term.table
+---
+
+
+
+```{r}
+# defining a function to modify vocab that can be used by the ML package lda
+
+
+get_terms <- function(x) {
+  index <- match(vocab,x)
+  index <- index[!is.na(index)]
+  rbind(as.integer(index - 1), as.integer(rep(1, length(index))))
+}
+
+documents <- lapply(doc.list, get_terms)
+
+head(documents,1)
+```
+
+
+
+---
+  
+  The above value printed is a representation of the token count, where each token is now represented as an integer(that is index of the word in vocab  corpus)
+  So document is a vector, [1] is the index in vocab and [2] is the count of the term in the document.  
+---
+
+```{r}
+
+# Statistics about the corpus
+
+
+
+D <- length(documents) # Number of documents
+
+W <- length(vocab) # Number of unique words
+
+doc.length <- sapply(documents, function(x){ sum(x[2, ])}) #Number of tokens in each document
+
+
+N <- sum(doc.length) # Total number of tokens
+
+term.frequency <- as.integer(term.table) # frequncy of terms in the document
+
+
+```
+
+---
+  Next we load the LDA model from the lda package
+---
+
+
+```{r}
+# MCMC and model tuning parameters:
+K <- 20 #Number of topics
+G <- 5000 # Gibbs sampler
+alpha <- 0.02 # document topic distributions
+eta <- 0.02 # topic term distributions
+
+
+set.seed(357)
+
+t1 <- Sys.time()
+
+
+fit <- lda.collapsed.gibbs.sampler(documents = documents, K = K, vocab = vocab, 
+                                   num.iterations = G, alpha = alpha, 
+                                   eta = eta, initial = NULL, burnin = 0,
+                                   compute.log.likelihood = TRUE)
+
+
+
+
+t2 <- Sys.time()
+
+"Thus there is a time difference of \n"
+t2-t1
+
+```
+
+---
+  Visualizing the model
+---
+
+
+```{r}
+theta <- t(apply(fit$document_sums + alpha, 2, function(x) x/sum(x)))
+phi <- t(apply(t(fit$topics) + eta, 2, function(x) x/sum(x)))
+
+MovieReviews <- list(phi = phi,
+                     theta = theta,
+                     doc.length = doc.length,
+                     vocab = vocab,
+                     term.frequency = term.frequency)
+
+json <- createJSON(phi = MovieReviews$phi, 
+                   theta = MovieReviews$theta, 
+                   doc.length = MovieReviews$doc.length, 
+                   vocab = MovieReviews$vocab, 
+                   term.frequency = MovieReviews$term.frequency)
+
+serVis(json, out.dir = 'vis', open.browser = FALSE)
+
+
+```
+
